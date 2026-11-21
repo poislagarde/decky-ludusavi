@@ -21,6 +21,10 @@ export type PersistentState = {
   auto_backup_enabled: boolean;
   auto_backup_new_games: boolean;
   auto_backup_toast_enabled: boolean;
+  // Minutes between backups while a game is running. 0 = off.
+  periodic_backup_minutes: number;
+  // Toast when a periodic backup can't reach the cloud (e.g. offline). Off by default.
+  periodic_cloud_alerts: boolean;
 
   recent_games: string[];
 }
@@ -47,6 +51,8 @@ class AppState {
     auto_backup_enabled: false,
     auto_backup_new_games: false,
     auto_backup_toast_enabled: false,
+    periodic_backup_minutes: 0,
+    periodic_cloud_alerts: false,
     recent_games: [],
   };
 
@@ -62,6 +68,8 @@ class AppState {
     this.setState("auto_backup_enabled", await getConfig("auto_backup_enabled"));
     this.setState("auto_backup_new_games", await getConfig("auto_backup_new_games"));
     this.setState("auto_backup_toast_enabled", await getConfig("auto_backup_toast_enabled"));
+    this.setState("periodic_backup_minutes", (await getConfig<number>("periodic_backup_minutes")) ?? 0);
+    this.setState("periodic_cloud_alerts", (await getConfig<boolean>("periodic_cloud_alerts")) ?? false);
   }
 
   private async initializeVersion() {
