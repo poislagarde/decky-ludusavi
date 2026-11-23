@@ -67,8 +67,9 @@ export const onGameExit = async (appId: number) => {
         const game = await getGameConfig(gameName);
 
         if (game.autoSync) {
-            // A periodic backup may still be running; wait (up to 5 min) so the exit backup isn't dropped.
-            for (let waited = 0; appState.currentState.syncing && waited < 300; waited++) {
+            // A periodic backup or cloud catch-up may still be running (uploading a full backup to Dropbox can take
+            // ~10 min); wait up to 20 min so the exit backup isn't dropped.
+            for (let waited = 0; appState.currentState.syncing && waited < 1200; waited++) {
                 await new Promise((r) => setTimeout(r, 1000));
             }
             await backupGame(game.alias);

@@ -1,6 +1,6 @@
 {
   "name": "decky-ludusavi",
-  "version": "1.3.0-periodic.2",
+  "version": "1.3.0-periodic.3",
   "description": "Ludusavi for Decky. Backup, restore, and keep multiple versions of your save files with ease! Requires Ludusavi installed on the device.",
   "type": "module",
   "scripts": {
