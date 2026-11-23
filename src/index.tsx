@@ -28,7 +28,7 @@ export default definePlugin(() => {
   const unregisterDependencies = registerDependencies();
 
   return {
-    name: "Decky Ludusavi",
+    name: "Decky Ludusavi Periodic",
     content: <Content />,
     icon: <LuDatabaseBackup />,
     onDismount: () => {

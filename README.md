@@ -52,3 +52,4 @@ I recognise this Ludusavi is a complex tool to get started on. And while I tried
 
 * [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader)
 * [Ludusavi](https://github.com/mtkennerly/ludusavi)
+> This fork is named "Decky Ludusavi Periodic" in Decky, so the Decky store never offers to replace it with the original Decky Ludusavi.
