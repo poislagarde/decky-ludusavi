@@ -53,6 +53,14 @@ export default function ConfigurationPanel() {
               }}
             />
           </PanelSectionRow>
+          <PanelSectionRow>
+            <ToggleField
+              label="Keep Cloud Caught Up"
+              description="If backups couldn't reach the cloud (e.g. played offline), upload them automatically once online. Stops and alerts if the cloud has backups this device didn't make."
+              checked={appState.cloud_auto_catch_up}
+              onChange={(e) => handleConfigChange("cloud_auto_catch_up", e)}
+            />
+          </PanelSectionRow>
           {appState.periodic_backup_minutes > 0 && (
             <PanelSectionRow>
               <ToggleField

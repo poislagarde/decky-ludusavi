@@ -25,6 +25,10 @@ export type PersistentState = {
   periodic_backup_minutes: number;
   // Toast when a periodic backup can't reach the cloud (e.g. offline). Off by default.
   periodic_cloud_alerts: boolean;
+  // When Ludusavi reports a cloud conflict, upload this device's backups if nothing in the cloud would be lost.
+  cloud_auto_catch_up: boolean;
+  // Games whose cloud copy is behind (e.g. backed up while offline); retried periodically.
+  cloud_pending: string[];
 
   recent_games: string[];
 }
@@ -53,6 +57,8 @@ class AppState {
     auto_backup_toast_enabled: false,
     periodic_backup_minutes: 0,
     periodic_cloud_alerts: false,
+    cloud_auto_catch_up: true,
+    cloud_pending: [],
     recent_games: [],
   };
 
@@ -70,6 +76,8 @@ class AppState {
     this.setState("auto_backup_toast_enabled", await getConfig("auto_backup_toast_enabled"));
     this.setState("periodic_backup_minutes", (await getConfig<number>("periodic_backup_minutes")) ?? 0);
     this.setState("periodic_cloud_alerts", (await getConfig<boolean>("periodic_cloud_alerts")) ?? false);
+    this.setState("cloud_auto_catch_up", (await getConfig<boolean>("cloud_auto_catch_up")) ?? true);
+    this.setState("cloud_pending", (await getConfig<string[]>("cloud_pending")) ?? []);
   }
 
   private async initializeVersion() {

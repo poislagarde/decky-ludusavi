@@ -73,6 +73,10 @@ class Plugin:
             )
         )
 
+    async def cloud_catch_up(self, game_name: str):
+        decky.logger.debug("Executing: cloud_catch_up('%s')", game_name)
+        asyncio.create_task(self.ludusavi.cloud_catch_up_async(game_name))
+
     async def get_game_backups(self, game_name: str):
         decky.logger.debug("Executing: get_game_backups('%s')", game_name)
         return await self.ludusavi.get_game_backups(game_name)

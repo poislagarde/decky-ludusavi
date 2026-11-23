@@ -1,7 +1,7 @@
 import appState, { setAppState } from "./state";
 import { resolveGameName } from "./steamUtil";
 import { toaster } from "@decky/api";
-import { backup, getGameConfig, log } from "./backend";
+import { backup, cloudCatchUp, getGameConfig, log, setConfig } from "./backend";
 
 // Periodic backups of running games, keyed by Steam app id.
 const periodicTimers = new Map<number, ReturnType<typeof setInterval>>();
@@ -86,7 +86,7 @@ export async function backupGame(gameName: string, { quiet = false }: { quiet?: 
 
     try {
         setAppState("syncing", true);
-        handleComplete(start, await backup(gameName), quiet, gameName);
+        await handleComplete(start, await backup(gameName), quiet, gameName);
     } catch (e) {
         toaster.toast({ title: "⛔ Ludusavi: Error", body: "An error occurred while backing up. Check logs." });
         console.error(e);
@@ -95,42 +95,128 @@ export async function backupGame(gameName: string, { quiet = false }: { quiet?: 
     }
 }
 
-// Games already warned about a cloud conflict by a periodic backup during this play session.
+// Games already warned about a real cloud conflict by a periodic backup during this play session.
 const periodicConflictWarned = new Set<string>();
 
-// quiet = periodic backup: no success toast, and cloud problems are muted (see below).
+// ---- Cloud catch-up ----
+// Ludusavi calls it a "cloud conflict" whenever local backups and the cloud differ, including the
+// common case where only this device moved ahead (backups made while offline). The backend previews
+// an upload and only performs it when nothing in the cloud would be lost; otherwise it's a real conflict.
+
+const setCloudPending = (gameName: string, pending: boolean) => {
+    const current = appState.currentState.cloud_pending ?? [];
+    if (current.includes(gameName) === pending) return;
+    const next = pending ? [...current, gameName] : current.filter((g) => g !== gameName);
+    setAppState("cloud_pending", next);
+    setConfig("cloud_pending", next);
+}
+
+const reportCloudUnreachable = (gameName: string, quiet: boolean) => {
+    // Usually just offline. The local backup still completed, so stay silent during play unless opted in.
+    if (!quiet || appState.currentState.periodic_cloud_alerts) {
+        toaster.toast({ title: "⚠️ Ludusavi: Cloud Sync Issue", body: "Unable to reach the cloud. Will retry automatically." });
+    } else {
+        log(`${gameName}: cloud unreachable (offline?); local backup kept, will retry; toast muted`, "warn");
+    }
+}
+
+const reportRealConflict = (gameName: string, quiet: boolean, foreign: string[] = []) => {
+    log(`${gameName}: real cloud conflict, nothing uploaded. Cloud-only backups: ${foreign.join(", ")}`, "warn");
+    // A real conflict doesn't go away by itself; during play, warn once per session instead of every interval.
+    if (!quiet || !periodicConflictWarned.has(gameName)) {
+        toaster.toast({
+            title: "⚠️ Ludusavi: Cloud Conflict",
+            body: "The cloud has backups this device didn't make. Nothing was overwritten. Resolve in Ludusavi.",
+        });
+        if (quiet) periodicConflictWarned.add(gameName);
+    }
+}
+
+// Returns true when the cloud now matches this device's backups.
+async function catchUpCloud(gameName: string, quiet: boolean): Promise<boolean> {
+    const r = await cloudCatchUp(gameName);
+    switch (r.status) {
+        case "uploaded":
+            setCloudPending(gameName, false);
+            log(`${gameName}: cloud caught up, uploaded ${r.files} file(s), removed ${r.pruned} file(s) of backups already pruned locally`);
+            return true;
+        case "in_sync":
+            setCloudPending(gameName, false);
+            log(`${gameName}: cloud already in sync`);
+            return true;
+        case "conflict":
+            setCloudPending(gameName, false); // don't retry; needs a decision
+            reportRealConflict(gameName, quiet, r.foreign);
+            return false;
+        default:
+            setCloudPending(gameName, true);
+            log(`${gameName}: cloud catch-up ${r.status}: ${r.detail ?? ""}`, "warn");
+            reportCloudUnreachable(gameName, quiet);
+            return false;
+    }
+}
+
+// Retry games whose cloud copy is behind, e.g. after coming back online. Silent unless something needs attention.
+export async function retryPendingCloud() {
+    const s = appState.currentState;
+    if (!s.ludusavi_enabled || !s.cloud_auto_catch_up) return;
+    for (const gameName of [...(s.cloud_pending ?? [])]) {
+        if (appState.currentState.syncing) return;
+        setAppState("syncing", true);
+        try {
+            await catchUpCloud(gameName, true);
+        } catch (e) {
+            log(`${gameName}: cloud retry failed: ${e}`, "error");
+        } finally {
+            setAppState("syncing", false);
+        }
+    }
+}
+
+// quiet = periodic backup: no success toast, and cloud problems are muted (see above).
 // Errors that mean the local backup itself failed always toast.
-function handleComplete(start: Date, result: LudusaviBackupResponse, quiet = false, gameName = "") {
+async function handleComplete(start: Date, result: LudusaviBackupResponse, quiet = false, gameName = "") {
+    let cloudNote = "";
+
     if (result.errors) {
+        let failed = false;
+
         if (result.errors.cloudConflict) {
-            // A conflict doesn't go away by itself; during play, warn once per session instead of every interval.
-            if (!quiet || !periodicConflictWarned.has(gameName)) {
-                toaster.toast({ title: "⚠️ Ludusavi: Cloud Conflict", body: "Files out of sync with cloud." });
-                if (quiet) periodicConflictWarned.add(gameName);
+            if (appState.currentState.cloud_auto_catch_up) {
+                if (await catchUpCloud(gameName, quiet)) {
+                    cloudNote = " Cloud caught up.";
+                } else {
+                    failed = true;
+                }
             } else {
-                log(`Periodic backup of ${gameName}: cloud conflict (already notified this session)`, "warn");
+                setCloudPending(gameName, true);
+                reportRealConflict(gameName, quiet);
+                failed = true;
             }
         }
         if (result.errors.cloudSyncFailed) {
-            // Usually just offline. The local backup still completed, so stay silent during play unless opted in.
-            if (!quiet || appState.currentState.periodic_cloud_alerts) {
-                toaster.toast({ title: "⚠️ Ludusavi: Cloud Sync Issue", body: "Unable to synchronize with cloud." })
-            } else {
-                log(`Periodic backup of ${gameName}: cloud sync failed (offline?); local backup kept, toast muted`, "warn");
-            }
+            setCloudPending(gameName, true);
+            reportCloudUnreachable(gameName, quiet);
+            failed = true;
         }
         if (result.errors.unknownGames) {
             toaster.toast({ title: "⛔ Ludusavi: Unknown Game", body: result.errors.unknownGames[0] })
+            failed = true;
         }
         if (result.errors.pluginError) {
             toaster.toast({ title: "⛔ Ludusavi: Plugin Error", body: result.errors.pluginError })
+            failed = true;
         }
 
-        console.error(result.errors)
-        return;
+        if (failed) {
+            console.error(result.errors)
+            return;
+        }
+    } else {
+        setCloudPending(gameName, false);
     }
 
-    Object.keys(result.games).forEach((gameName) => {
+    Object.keys(result.games ?? {}).forEach((gameName) => {
         const game = result.games[gameName];
         let message = "";
         let bytesChanged = 0;
@@ -158,11 +244,11 @@ function handleComplete(start: Date, result: LudusaviBackupResponse, quiet = fal
         }
 
         if (quiet) {
-            log(`Periodic backup of ${gameName}: ${message}`);
+            log(`Periodic backup of ${gameName}: ${message}.${cloudNote}`);
         } else if (appState.currentState.auto_backup_toast_enabled) {
             toaster.toast({
                 title: `Ludusavi Backup Complete - ${gameName}`,
-                body: `${message}. ⌛ ${((new Date().getTime() - start.getTime()) / 1000).toFixed(2)} s.`,
+                body: `${message}.${cloudNote} ⌛ ${((new Date().getTime() - start.getTime()) / 1000).toFixed(2)} s.`,
             });
         }
     });

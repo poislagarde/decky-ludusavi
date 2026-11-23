@@ -29,6 +29,14 @@ export const syncGameCloudState = (gameName: string, direction: "upload" | "down
     "sync_game_cloud_state_complete"
   );
 
+export type CloudCatchUpResult =
+  | { status: "uploaded"; files: number; pruned: number }
+  | { status: "in_sync" }
+  | { status: "conflict"; foreign: string[] }
+  | { status: "offline" | "failed"; detail?: string };
+export const cloudCatchUp = (gameName: string) =>
+  asyncHandler<CloudCatchUpResult>(() => call("cloud_catch_up", gameName), "cloud_catch_up_complete");
+
 export const getLudusaviConfig = () => call<[], LudusaviConfig>("get_ludusavi_config");
 
 export const getConfig = <T>(key: keyof PersistentState) => call<[string], T>("get_config", key);
